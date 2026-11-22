@@ -1,120 +1,127 @@
+"""AI Learning Roadmap Generator
+Streamlit UI + Google Gemini Flash model.
+"""
+
+import os
+
 import streamlit as st
 from google import genai
+from google.genai import types
 
-st.set_page_config(
-    page_title="AI Learning Roadmap Generator",
-    page_icon="🗺️",
-    layout="wide",
-)
+DEFAULT_MODEL = "gemini-2.5-flash"
 
-st.title("🗺️ AI Learning Roadmap Generator")
-st.write(
-    "Enter what you want to learn in AI, your current level, and your weekly study time "
-    "to get a structured, step-by-step learning roadmap powered by Gemini Flash."
-)
+LEVELS = ["Complete beginner", "Some programming experience", "Intermediate (know basic ML)", "Advanced"]
+GOALS = [
+    "Machine Learning Engineer",
+    "Data Scientist",
+    "Generative AI / LLM Developer",
+    "Computer Vision Engineer",
+    "NLP Engineer",
+    "AI Researcher",
+    "Use AI in my current job / business",
+    "Just exploring AI",
+]
+STYLES = ["Video courses", "Books & articles", "Hands-on projects", "A mix of everything"]
 
-# Read API key from Streamlit secrets first, or allow sidebar entry locally
-api_key = ""
-try:
-    api_key = st.secrets.get("GEMINI_API_KEY", "")
-except Exception:
-    api_key = ""
 
-with st.sidebar:
-    st.header("Configuration")
-    if not api_key:
-        api_key = st.text_input(
-            "Gemini API Key",
-            type="password",
-            help="Get a key from Google AI Studio (aistudio.google.com).",
-        )
-    else:
-        st.success("API key loaded from Streamlit Secrets.")
+def get_api_key():
+    """Look for the API key in Streamlit secrets, then environment variables."""
+    try:
+        key = st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:  # no secrets.toml present
+        key = ""
+    return key or os.environ.get("GEMINI_API_KEY", "")
 
-    model_name = st.selectbox(
-        "Gemini Flash Model",
-        options=["gemini-3.8-flash", "gemini-3.5-flash-lite"],
-        index=0,
+
+def build_prompt(level, goal, hours_per_week, months, background, style, extra):
+    """Create the prompt sent to Gemini."""
+    total_weeks = int(months) * 4
+    return f"""You are an expert AI mentor. Create a clear, practical, personalised AI learning roadmap.
+
+Learner profile:
+- Current level: {level}
+- Goal: {goal}
+- Time available: {hours_per_week} hours per week for {months} month(s) (about {total_weeks} weeks)
+- Background: {background.strip() or "Not provided"}
+- Preferred learning style: {style}
+- Extra notes: {extra.strip() or "None"}
+
+Write the roadmap in Markdown with exactly these sections:
+1. ## Overview - 3-4 sentences on the path and what the learner will be able to do at the end.
+2. ## Prerequisites - skills to have or refresh first (skip if none needed).
+3. ## Phase-by-Phase Roadmap - split the {total_weeks} weeks into phases. For each phase give: title, week range, topics, 2-3 recommended free or well-known resources (courses, books, docs), and one hands-on mini project.
+4. ## Capstone Project - one portfolio-worthy project idea.
+5. ## Tools & Libraries - the main tools to learn.
+6. ## Weekly Routine - how to split the {hours_per_week} weekly hours.
+7. ## Tips & Common Mistakes - 4-5 short bullet points.
+
+Be realistic for the time available. Only recommend resources you are confident exist. Do not invent URLs."""
+
+
+def generate_roadmap(api_key, model, prompt):
+    """Call Gemini and return the generated text. Raises ValueError on empty output."""
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=types.GenerateContentConfig(temperature=0.7),
     )
+    text = (response.text or "").strip()
+    if not text:
+        raise ValueError("The model returned an empty response (it may have been blocked). Try rephrasing your inputs.")
+    return text
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    goal_topic = st.text_input(
-        "Target AI Topic / Track",
-        placeholder="e.g., Machine Learning, LLMs & RAG, Computer Vision",
-    )
-with col2:
-    current_level = st.selectbox(
-        "Current Experience Level",
-        options=["Beginner", "Intermediate (Know Python basics)", "Advanced"],
-    )
-with col3:
-    timeframe = st.selectbox(
-        "Study Duration",
-        options=["4 Weeks", "8 Weeks", "12 Weeks (3 Months)", "6 Months"],
-        index=2,
-    )
 
-weekly_hours = st.slider(
-    "Hours Available Per Week",
-    min_value=2,
-    max_value=30,
-    value=8,
-    step=1,
-)
+def main():
+    st.set_page_config(page_title="AI Learning Roadmap", page_icon="🗺️", layout="centered")
+    st.title("🗺️ AI Learning Roadmap Generator")
+    st.caption("Tell us about yourself and get a personalised plan to learn AI, powered by Google Gemini.")
 
-prior_skills = st.text_area(
-    "Current Background / Tools You Already Know (Optional)",
-    height=90,
-    placeholder="e.g., Basic Python, calculus, statistics, Git, no prior ML experience",
-)
+    api_key = get_api_key()
+    with st.sidebar:
+        st.header("⚙️ Settings")
+        if not api_key:
+            api_key = st.text_input("Gemini API key", type="password", help="Get a free key at https://aistudio.google.com/apikey")
+        else:
+            st.success("API key loaded")
+        model = st.text_input("Gemini model", value=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL))
 
-if st.button("Generate Roadmap", type="primary"):
-    if not api_key or not api_key.strip():
-        st.error("Please provide a Gemini API key in Streamlit Secrets or the sidebar.")
-    elif not goal_topic or not goal_topic.strip():
-        st.error("Please enter a target AI topic or track.")
-    else:
-        prompt = f"""
-You are a practical AI curriculum mentor. Create a clear, realistic, and actionable learning roadmap.
+    with st.form("roadmap_form"):
+        level = st.selectbox("Your current level", LEVELS)
+        goal = st.selectbox("Your goal", GOALS)
+        col1, col2 = st.columns(2)
+        hours = col1.slider("Hours per week", 1, 40, 8)
+        months = col2.slider("Duration (months)", 1, 12, 6)
+        style = st.selectbox("Preferred learning style", STYLES)
+        background = st.text_area("Your background (optional)", placeholder="e.g. Final-year CS student, know Python and basic maths")
+        extra = st.text_area("Anything else? (optional)", placeholder="e.g. I want to focus on building chatbots")
+        submitted = st.form_submit_button("✨ Generate my roadmap")
 
-Learner Profile:
-- Target Topic / Track: {goal_topic.strip()}
-- Current Level: {current_level}
-- Duration: {timeframe}
-- Weekly Time Commitment: {weekly_hours} hours/week
-- Prior Background: {prior_skills.strip() if prior_skills and prior_skills.strip() else "Not specified"}
-
-Structure the response using clean Markdown with:
-1. **Overview & Prerequisites**: Brief summary of what the learner will achieve and key foundations needed.
-2. **Phase-by-Phase Roadmap**: Broken down across {timeframe} (~{weekly_hours} hrs/week), with concrete topics, concepts, and estimated time per phase.
-3. **Hands-On Projects**: 2 to 3 practical mini-projects or milestones to build along the way.
-4. **Study & Practice Tips**: How to avoid tutorial trap, test understanding, and track progress.
-"""
+    if submitted:
+        if not api_key:
+            st.error("Please enter your Gemini API key in the sidebar.")
+            st.stop()
+        if not model.strip():
+            st.error("Please enter a Gemini model name in the sidebar.")
+            st.stop()
+        prompt = build_prompt(level, goal, hours, months, background, style, extra)
         try:
-            with st.spinner("Building your personalized AI roadmap..."):
-                client = genai.Client(api_key=api_key.strip())
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-
-            roadmap_text = response.text or ""
-            if not roadmap_text.strip():
-                st.warning("No roadmap text was returned. Please try again.")
-            else:
-                st.markdown("## Your AI Learning Roadmap")
-                st.markdown(roadmap_text)
-
-                safe_filename = (
-                    "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in goal_topic.strip().lower())
-                    or "ai_roadmap"
-                )
-                st.download_button(
-                    label="Download Roadmap (.md)",
-                    data=roadmap_text,
-                    file_name=f"{safe_filename}_roadmap.md",
-                    mime="text/markdown",
-                )
+            with st.spinner("Building your roadmap..."):
+                st.session_state["roadmap"] = generate_roadmap(api_key, model.strip(), prompt)
         except Exception as exc:
-            st.error(f"Could not generate roadmap: {exc}")
+            st.session_state.pop("roadmap", None)
+            st.error(f"Could not generate the roadmap: {exc}")
+
+    if st.session_state.get("roadmap"):
+        st.divider()
+        st.markdown(st.session_state["roadmap"])
+        st.download_button(
+            "⬇️ Download as Markdown",
+            data=st.session_state["roadmap"],
+            file_name="ai_learning_roadmap.md",
+            mime="text/markdown",
+        )
+
+
+if __name__ == "__main__":
+    main()
