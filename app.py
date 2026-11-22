@@ -1,14 +1,14 @@
 """AI Learning Roadmap Generator
-Streamlit UI + Google Gemini Flash model.
+Streamlit UI + Google Gemini Flash model (via REST API).
 """
 
 import os
 
+import requests
 import streamlit as st
-from google import genai
-from google.genai import types
 
 DEFAULT_MODEL = "gemini-2.5-flash"
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 LEVELS = ["Complete beginner", "Some programming experience", "Intermediate (know basic ML)", "Advanced"]
 GOALS = [
@@ -59,16 +59,39 @@ Be realistic for the time available. Only recommend resources you are confident 
 
 
 def generate_roadmap(api_key, model, prompt):
-    """Call Gemini and return the generated text. Raises ValueError on empty output."""
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=types.GenerateContentConfig(temperature=0.7),
-    )
-    text = (response.text or "").strip()
+    """Call the Gemini REST API and return the generated text."""
+    try:
+        resp = requests.post(
+            API_URL.format(model=model),
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.7},
+            },
+            timeout=120,
+        )
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError(f"Network error while contacting Gemini: {exc}") from exc
+
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+
+    if resp.status_code != 200:
+        message = data.get("error", {}).get("message") if isinstance(data, dict) else None
+        raise RuntimeError(f"Gemini API error ({resp.status_code}): {message or resp.text[:200]}")
+
+    parts = []
+    for cand in data.get("candidates", []):
+        parts = cand.get("content", {}).get("parts", [])
+        if parts:
+            break
+    text = "".join(p.get("text", "") for p in parts).strip()
     if not text:
-        raise ValueError("The model returned an empty response (it may have been blocked). Try rephrasing your inputs.")
+        reason = data.get("promptFeedback", {}).get("blockReason")
+        extra = f" (blocked: {reason})" if reason else ""
+        raise ValueError(f"The model returned an empty response{extra}. Try rephrasing your inputs.")
     return text
 
 
