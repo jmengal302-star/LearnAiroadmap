@@ -1,6 +1,6 @@
 # 🗺️ AI Learning Roadmap Generator
 
-A Streamlit app that creates a personalised roadmap for learning AI, powered by Google's Gemini Flash model.
+A Streamlit app that creates a personalised roadmap for learning AI, powered by Google's Gemini Flash model (called through its REST API, so no extra Google SDK is needed).
 
 ## Features
 - Choose your level, goal, weekly hours, duration and learning style
@@ -51,3 +51,9 @@ The default model is `gemini-2.5-flash`. You can change it in the sidebar, or se
 | `app.py` | Streamlit app |
 | `requirements.txt` | Python dependencies |
 | `README.md` | Documentation |
+
+## Troubleshooting
+- **`ModuleNotFoundError` / `ImportError` on Streamlit Cloud:** make sure `requirements.txt` is in the *root* of your repo (same folder level as `app.py`), then click **Manage app → Reboot app**.
+- **`Gemini API error (404)`:** the model name is wrong or retired. Change it in the sidebar.
+- **`Gemini API error (400/403)`:** your API key is invalid or missing.
+- **`Gemini API error (429)`:** you hit the free-tier rate limit; wait a minute and try again.
